@@ -1,0 +1,68 @@
+version: "3.8"
+
+services:
+  chain-a:
+    build:
+      context: .
+      dockerfile: Dockerfile.chain
+    command: npm run node:chain-a
+    ports:
+      - "8545:8545"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8545"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  chain-b:
+    build:
+      context: .
+      dockerfile: Dockerfile.chain
+    command: npm run node:chain-b
+    ports:
+      - "9545:9545"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9545"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  deployer:
+    build:
+      context: .
+      dockerfile: Dockerfile.chain
+    command: npm run deploy:all
+    env_file:
+      - .env
+    environment:
+      - CHAIN_A_RPC_URL=http://chain-a:8545
+      - CHAIN_B_RPC_URL=http://chain-b:9545
+    volumes:
+      - ./deployments:/usr/src/app/deployments
+    depends_on:
+      chain-a:
+        condition: service_healthy
+      chain-b:
+        condition: service_healthy
+
+  relayer:
+    build: ./relayer
+    restart: on-failure
+    env_file:
+      - .env
+    environment:
+      - CHAIN_A_RPC_URL=http://chain-a:8545
+      - CHAIN_B_RPC_URL=http://chain-b:9545
+      - CHAIN_A_DEPLOYMENT_PATH=/usr/src/app/deployments/chain-a.json
+      - CHAIN_B_DEPLOYMENT_PATH=/usr/src/app/deployments/chain-b.json
+      - DB_PATH=/usr/src/app/data/processed_nonces.json
+    volumes:
+      - ./relayer_data:/usr/src/app/data
+      - ./deployments:/usr/src/app/deployments
+    depends_on:
+      chain-a:
+        condition: service_healthy
+      chain-b:
+        condition: service_healthy
+      deployer:
+        condition: service_completed_successfully
